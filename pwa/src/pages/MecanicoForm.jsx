@@ -298,7 +298,7 @@ function CerrarTicketForm({ solicitud, showToast, onClosed }) {
   );
 }
 
-export default function MecanicoForm({ user }) {
+export default function MecanicoForm({ user, tab, setTab }) {
   const [form, setForm] = useState({
     fechaHora: '', tipoUnidad: '', numeroEconomico: '',
     descripcionServicio: '', costoEstimado: '', odometro: '',
@@ -308,7 +308,6 @@ export default function MecanicoForm({ user }) {
   const [status, setStatus] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
-  const [tab, setTab] = useState('crear');
   const [fotos, setFotos] = useState([]);
   const { toast, showToast, hideToast } = useToast();
 
@@ -360,19 +359,6 @@ export default function MecanicoForm({ user }) {
       <Toast message={toast.message} type={toast.type} onDismiss={hideToast} />
 
       <BotonNotificaciones showToast={showToast} />
-
-      {/* ── Pestañas ── */}
-      <div className="segmented">
-        <button type="button"
-          className={`segmented__btn ${tab === 'crear' ? 'segmented__btn--active' : ''}`}
-          onClick={() => setTab('crear')}>Crear</button>
-        <button type="button"
-          className={`segmented__btn ${tab === 'proceso' ? 'segmented__btn--active' : ''}`}
-          onClick={() => setTab('proceso')}>En proceso</button>
-        <button type="button"
-          className={`segmented__btn ${tab === 'mis' ? 'segmented__btn--active' : ''}`}
-          onClick={() => setTab('mis')}>Mis solicitudes</button>
-      </div>
 
       {tab === 'crear' ? (
       <form className="form form--full" onSubmit={handleSubmit} autoComplete="off">

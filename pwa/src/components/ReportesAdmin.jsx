@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSolicitudes, pagarSolicitud } from '../services/api';
+import { getSolicitudes } from '../services/api';
 
 const TIPOS_PERIODO = ['Semanal', 'Mensual'];
 const ESTATUS_KPI = ['Pendiente', 'En proceso', 'Reparado', 'Pago autorizado', 'Pagado', 'Rechazado', 'Pago rechazado'];
-
-const money = (v) => `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
 // Estatus para mostrar: el pago se deriva del booleano autorizacionpago
 // (NULL = esperando pago → 'Reparado'; 1 = 'Pago autorizado'; 0 = 'Pago rechazado').
@@ -58,11 +56,6 @@ const enPeriodo = (raw, { inicio, fin }) => {
   return f >= inicio && f < fin;
 };
 
-const formatFechaCorta = (raw) => {
-  const d = parseWall(raw);
-  return d ? d.toLocaleDateString('es-MX', { dateStyle: 'short' }) : '—';
-};
-
 // ── Reporte 1: KPIs de tickets por estatus ────────────────────
 function ReporteKpis({ solicitudes, rango }) {
   const delPeriodo = solicitudes.filter((s) => enPeriodo(s.fechahora, rango));
@@ -96,183 +89,6 @@ function ReporteKpis({ solicitudes, rango }) {
         <span className="kpi-row__valor">{total}</span>
         <span className="kpi-row__pct">{total > 0 ? '100%' : '—'}</span>
       </div>
-    </section>
-  );
-}
-
-// ── Reporte 2: cuentas por pagar (pagos autorizados) ──────────
-// Solo tickets con pago AUTORIZADO (autorizacionpago = 1). El periodo se
-// determina por la fecha de cierre de la reparación (no hay timestamp de
-// la decisión de pago en la BD).
-function ReporteCuentasPorPagar({ solicitudes, rango, onPagados }) {
-  const [vista, setVista] = useState('porPagar'); // 'porPagar' | 'pagadas'
-
-  const pagosAutorizados = solicitudes
-    .filter((s) => displayEstatus(s) === 'Pago autorizado' && enPeriodo(s.fechacierre, rango))
-    .sort((a, b) => (parseWall(a.fechacierre) || 0) - (parseWall(b.fechacierre) || 0));
-
-  const pagadas = solicitudes
-    .filter((s) => s.estatus === 'Pagado' && enPeriodo(s.fechacierre, rango))
-    .sort((a, b) => (parseWall(a.fechacierre) || 0) - (parseWall(b.fechacierre) || 0));
-
-  const lista = vista === 'porPagar' ? pagosAutorizados : pagadas;
-  const totalMonto = lista.reduce((acc, s) => acc + Number(s.costoreal ?? s.costo ?? 0), 0);
-
-  const [seleccion, setSeleccion] = useState(() => new Set());
-  const [modalOpen, setModalOpen] = useState(false);
-  const [comentario, setComentario] = useState('');
-  const [pagando, setPagando] = useState(false);
-  const [pagoError, setPagoError] = useState('');
-
-  const idsVisibles = pagosAutorizados.map((s) => s.idserviciomovil);
-  const allSelected = idsVisibles.length > 0 && idsVisibles.every((id) => seleccion.has(id));
-  const seleccionadas = pagosAutorizados.filter((s) => seleccion.has(s.idserviciomovil));
-  const totalSeleccion = seleccionadas.reduce((acc, s) => acc + Number(s.costoreal ?? s.costo ?? 0), 0);
-
-  const toggle = (id) => setSeleccion((prev) => {
-    const n = new Set(prev);
-    if (n.has(id)) n.delete(id); else n.add(id);
-    return n;
-  });
-  const toggleAll = () => setSeleccion(allSelected ? new Set() : new Set(idsVisibles));
-
-  const confirmarPago = async () => {
-    const ids = seleccionadas.map((s) => s.idserviciomovil);
-    if (ids.length === 0) return;
-    setPagando(true);
-    setPagoError('');
-    try {
-      const txt = comentario.trim();
-      await Promise.all(ids.map((id) => pagarSolicitud(id, txt || null)));
-      onPagados(ids, txt);
-      setSeleccion(new Set());
-      setModalOpen(false);
-      setComentario('');
-    } catch (e) {
-      setPagoError(e?.response?.data?.message || 'Error al registrar el pago.');
-    } finally {
-      setPagando(false);
-    }
-  };
-
-  return (
-    <section className="reporte">
-      <h3 className="reporte__titulo">Cuentas por pagar</h3>
-
-      {/* Toggle: por pagar / ya pagadas (sobre el periodo seleccionado) */}
-      <div className="periodo-tipos" style={{ marginTop: 4, marginBottom: 12 }}>
-        <button
-          type="button"
-          className={`periodo-tipos__btn ${vista === 'porPagar' ? 'periodo-tipos__btn--active' : ''}`}
-          onClick={() => setVista('porPagar')}
-        >
-          Por pagar ({pagosAutorizados.length})
-        </button>
-        <button
-          type="button"
-          className={`periodo-tipos__btn ${vista === 'pagadas' ? 'periodo-tipos__btn--active' : ''}`}
-          onClick={() => setVista('pagadas')}
-        >
-          Pagadas ({pagadas.length})
-        </button>
-      </div>
-
-      <p className="reporte__nota">
-        {vista === 'porPagar'
-          ? 'Pagos autorizados · por fecha de cierre · costo real'
-          : 'Solicitudes pagadas · por fecha de cierre · costo real'}
-      </p>
-
-      {lista.length === 0 && (
-        <p className="admin-estado">
-          {vista === 'porPagar'
-            ? 'Sin pagos autorizados en este periodo.'
-            : 'Sin solicitudes pagadas en este periodo.'}
-        </p>
-      )}
-
-      {vista === 'porPagar' && pagosAutorizados.length > 0 && (
-        <div className="cxp-acciones">
-          <label className="cxp-selall">
-            <input type="checkbox" checked={allSelected} onChange={toggleAll} />
-            Seleccionar todo
-          </label>
-          {seleccion.size > 0 && (
-            <button
-              type="button"
-              className="btn-accion btn-accion--aprobar"
-              onClick={() => { setPagoError(''); setModalOpen(true); }}
-            >
-              Pagar {seleccion.size} · {money(totalSeleccion)}
-            </button>
-          )}
-        </div>
-      )}
-
-      {lista.map((s) => (
-        <div key={s.idserviciomovil} className="cxp-row">
-          {vista === 'porPagar' && (
-            <input
-              type="checkbox"
-              className="cxp-row__check"
-              checked={seleccion.has(s.idserviciomovil)}
-              onChange={() => toggle(s.idserviciomovil)}
-            />
-          )}
-          <div className="cxp-row__info">
-            <span className="cxp-row__id">
-              #{String(s.idserviciomovil)}{s.PO != null ? `  ·  PO ${s.PO}` : ''}
-            </span>
-            <span className="cxp-row__meta">
-              {s.tunidad} · {s.numeconomico} · cierre {formatFechaCorta(s.fechacierre)}
-            </span>
-            {vista === 'pagadas' && s.comentariocheckbox && (
-              <span className="cxp-row__comentario">“{s.comentariocheckbox}”</span>
-            )}
-          </div>
-          <span className="cxp-row__monto">{money(s.costoreal ?? s.costo)}</span>
-        </div>
-      ))}
-
-      {lista.length > 0 && (
-        <div className="cxp-total">
-          <span className="cxp-total__label">
-            Total ({lista.length} {lista.length === 1 ? 'ticket' : 'tickets'})
-          </span>
-          <span className="cxp-total__monto">{money(totalMonto)}</span>
-        </div>
-      )}
-
-      {modalOpen && (
-        <div className="detalle-modal" onClick={() => !pagando && setModalOpen(false)}>
-          <div className="detalle-modal__card" onClick={(e) => e.stopPropagation()}>
-            <div className="detalle-modal__header">
-              <span className="solicitud__id">
-                Pagar {seleccionadas.length} {seleccionadas.length === 1 ? 'ticket' : 'tickets'} · {money(totalSeleccion)}
-              </span>
-            </div>
-            <p className="admin-estado" style={{ marginBottom: 12 }}>
-              Se marcarán como <strong>Pagado</strong> y saldrán de cuentas por pagar. Comentario (opcional):
-            </p>
-            <textarea
-              className="form-input"
-              rows={3}
-              placeholder="Comentario opcional…"
-              value={comentario}
-              onChange={(e) => setComentario(e.target.value)}
-            />
-            {pagoError && <div className="form-error" style={{ marginTop: 8 }}>{pagoError}</div>}
-            <div className="solicitud__actions" style={{ marginTop: 14 }}>
-              <button type="button" className="btn-accion" onClick={() => { setModalOpen(false); setComentario(''); }} disabled={pagando}>
-                Cancelar
-              </button>
-              <button type="button" className="btn-accion btn-accion--aprobar" onClick={confirmarPago} disabled={pagando}>
-                {pagando ? '...' : 'Confirmar pago'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
@@ -337,17 +153,7 @@ export default function ReportesAdmin() {
       {error   && <div className="form-error">{error}</div>}
 
       {!loading && !error && (
-        <>
-          <ReporteKpis solicitudes={solicitudes} rango={rango} />
-          <ReporteCuentasPorPagar
-            solicitudes={solicitudes}
-            rango={rango}
-            onPagados={(ids, comentario) => setSolicitudes((prev) =>
-              prev.map((s) => ids.includes(s.idserviciomovil)
-                ? { ...s, estatus: 'Pagado', comentariocheckbox: comentario || null }
-                : s))}
-          />
-        </>
+        <ReporteKpis solicitudes={solicitudes} rango={rango} />
       )}
     </div>
   );

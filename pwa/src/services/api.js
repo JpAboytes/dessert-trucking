@@ -58,6 +58,10 @@ export const getSolicitudes = () =>
 export const pagarSolicitud = (id, comentarioCheckbox) =>
   api.patch(`/admin/solicitudes/${id}`, { pagar: true, comentarioCheckbox });
 
+// Reasigna la semana de pago de un PO "por pagar" (semanaPago: 'YYYY-MM-DD' | null para quitar).
+export const asignarSemanaPago = (id, semanaPago) =>
+  api.patch(`/admin/solicitudes/${id}`, { semanaPago });
+
 export const actualizarEstatus = (id, estatus) =>
   api.patch(`/admin/solicitudes/${id}`, { estatus });
 

@@ -174,6 +174,7 @@ export const handler = async (event) => {
                 s.numeconomico, s.descripcion, s.costo, s.costoreal,
                 s.fechahora, s.fechacierre, s.autorizacionpago, s.PO,
                 s.idpagador, s.comentariorechazo, s.comentariocheckbox,
+                DATE_FORMAT(s.semanapago, '%Y-%m-%d') AS semanapago,
                 us.nombre AS nombresolicitante,
                 ua.nombre AS nombreaprobador,
                 up.nombre AS nombrepagador
@@ -312,6 +313,71 @@ export const handler = async (event) => {
         return resp(200, { success: true, message: aprobado ? 'Pago autorizado' : 'Pago rechazado' });
       } catch (error) {
         console.error('[admin] error:', error?.code, '|', error?.sqlMessage ?? error?.message);
+        return resp(500, { success: false, message: error.message });
+      } finally {
+        if (connection) await connection.end().catch(() => {});
+      }
+    }
+
+    // ── Reasignar semana de pago: { semanaPago: 'YYYY-MM-DD' | null } ───
+    // Mueve un PO "por pagar" a otra semana. Guarda el override en serviciomovil.semanapago
+    // (la vista de Pagos bucketea por esta fecha) y SINCRONIZA servicio(c/cajas).fecha, que se
+    // pobló con la fecha de creación al autorizar. null = quita el override (vuelve a la de cierre).
+    if (Object.prototype.hasOwnProperty.call(body, 'semanaPago')) {
+      const semana = body.semanaPago;
+      const quitar = semana === null;
+      if (!quitar && !(typeof semana === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(semana))) {
+        return resp(400, { success: false, message: 'semanaPago debe ser una fecha YYYY-MM-DD o null' });
+      }
+      let connection;
+      try {
+        connection = await mysql.createConnection(dbConfig());
+        await connection.beginTransaction();
+        try {
+          const [cur] = await connection.execute(
+            `SELECT estatus, autorizacionpago, tunidad, numeconomico, PO, fechahora
+               FROM serviciomovil WHERE idserviciomovil = ? FOR UPDATE`,
+            [id]
+          );
+          if (cur.length === 0) {
+            await connection.rollback();
+            return resp(404, { success: false, message: 'Solicitud no encontrada' });
+          }
+          // Alcance: solo tickets "por pagar" (Reparado + pago autorizado).
+          if (!(cur[0].estatus === 'Reparado' && cur[0].autorizacionpago === 1)) {
+            await connection.rollback();
+            return resp(409, { success: false, message: 'Solo se reasigna la semana de un ticket con pago autorizado' });
+          }
+
+          // 1. Override en serviciomovil (fuente de verdad de la vista de Pagos).
+          await connection.execute(
+            'UPDATE serviciomovil SET semanapago = ? WHERE idserviciomovil = ?',
+            [quitar ? null : semana, id]
+          );
+
+          // 2. Sincroniza servicio(c/cajas).fecha. Localiza la fila por el PO embebido
+          //    ("{id}-{PO}-{numeconomico}"), igual que el update de tmo. Al quitar, revierte
+          //    a la fecha de creación (DATE(fechahora)).
+          const esCamion = cur[0].tunidad === 'Camión';
+          const tabla = esCamion ? 'servicioc' : 'serviciocajas';
+          const colPO = esCamion ? 'PO_camiones' : 'PO_remolques';
+          const [upd] = await connection.execute(
+            `UPDATE ${tabla} SET fecha = ${quitar ? 'DATE(?)' : '?'}
+              WHERE ${colPO} LIKE CONCAT('%-', ?, '-', ?)`,
+            [quitar ? cur[0].fechahora : semana, String(cur[0].PO), cur[0].numeconomico]
+          );
+          if (upd.affectedRows === 0) {
+            console.warn(`[admin] semanaPago: sin fila en ${tabla} para PO ${cur[0].PO} / ${cur[0].numeconomico}`);
+          }
+
+          await connection.commit();
+          return resp(200, { success: true, message: quitar ? 'Semana de pago restablecida' : 'Semana de pago actualizada' });
+        } catch (e) {
+          await connection.rollback();
+          throw e;
+        }
+      } catch (error) {
+        console.error('[admin] error semanaPago:', error?.code, '|', error?.sqlMessage ?? error?.message);
         return resp(500, { success: false, message: error.message });
       } finally {
         if (connection) await connection.end().catch(() => {});

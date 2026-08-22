@@ -5,6 +5,8 @@ import FotoThumb from '../components/FotoThumb';
 import DetalleSolicitud from '../components/DetalleSolicitud';
 import BotonNotificaciones from '../components/BotonNotificaciones';
 import ReportesAdmin from '../components/ReportesAdmin';
+import PagosAdmin from '../components/PagosAdmin';
+import FiltrosPanel from '../components/FiltrosPanel';
 import { useToast } from '../hooks/useToast';
 
 const ESTATUS_LABEL = {
@@ -17,24 +19,39 @@ const ESTATUS_LABEL = {
   'Pago rechazado': 'Pago rechazado',
 };
 
-const FILTROS = ['Todos', 'Pendiente', 'En proceso', 'Reparado', 'Pago autorizado', 'Pagado', 'Rechazado', 'Pago rechazado'];
-const FILTROS_FECHA = ['Todo', 'Hoy', 'Últimos 7 días', 'Últimos 30 días'];
 const POR_PAGINA = 10;
+
+// Filtros de la vista. Todos opcionales; vacío = sin filtrar por ese campo.
+const FILTROS_VACIOS = { estatus: 'Todos', tipoUnidad: '', po: '', fechaInicio: '', fechaFin: '' };
 
 // slug para la clase CSS del badge ('En proceso' -> 'en-proceso')
 const estatusSlug = (e) => e.toLowerCase().replace(/\s+/g, '-');
 const money = (v) => `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
-// Filtro por rango de fecha (presets). 'Hoy' = mismo día; N días = últimos N días.
-function dentroDeRango(raw, rango) {
-  if (rango === 'Todo') return true;
-  const f = parseWall(raw);
-  if (!f) return false;
-  if (rango === 'Hoy') return f.toDateString() === new Date().toDateString();
-  const dias = rango === 'Últimos 7 días' ? 7 : 30;
-  const limite = new Date();
-  limite.setDate(limite.getDate() - dias);
-  return f >= limite;
+// ¿La solicitud pasa todos los filtros activos? (fecha por fecha de solicitud)
+function coincideFiltros(s, f) {
+  if (f.estatus !== 'Todos' && displayEstatus(s) !== f.estatus) return false;
+  if (f.tipoUnidad && s.tunidad !== f.tipoUnidad) return false;
+  if (f.po.trim() && !String(s.PO ?? '').includes(f.po.trim())) return false;
+  if (f.fechaInicio || f.fechaFin) {
+    const d = parseWall(s.fechahora);
+    if (!d) return false;
+    if (f.fechaInicio && d < parseWall(`${f.fechaInicio}T00:00:00`)) return false;
+    if (f.fechaFin && d > parseWall(`${f.fechaFin}T23:59:59`)) return false;
+  }
+  return true;
+}
+
+// Chips descriptivos de los filtros activos (para el indicador). Cada uno sabe
+// cómo "limpiarse" devolviendo los campos a restablecer.
+function chipsActivos(f) {
+  const chips = [];
+  if (f.estatus !== 'Todos') chips.push({ key: 'estatus', label: f.estatus, reset: { estatus: 'Todos' } });
+  if (f.tipoUnidad)          chips.push({ key: 'tipoUnidad', label: f.tipoUnidad, reset: { tipoUnidad: '' } });
+  if (f.po.trim())           chips.push({ key: 'po', label: `PO ${f.po.trim()}`, reset: { po: '' } });
+  if (f.fechaInicio)         chips.push({ key: 'fechaInicio', label: `Desde ${f.fechaInicio}`, reset: { fechaInicio: '' } });
+  if (f.fechaFin)            chips.push({ key: 'fechaFin', label: `Hasta ${f.fechaFin}`, reset: { fechaFin: '' } });
+  return chips;
 }
 
 // Bloque de fotos colapsable (Apertura/Cierre): oculto por defecto.
@@ -259,19 +276,19 @@ function SolicitudRow({ s, onActualizar, onPago, onToast, onVerDetalle }) {
   );
 }
 
-export default function AdminView() {
+export default function AdminView({ tab = 'solicitudes' }) {
   const [solicitudes, setSolicitudes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filtro, setFiltro] = useState('Todos');
-  const [filtroFecha, setFiltroFecha] = useState('Todo');
-  const [tab, setTab] = useState('solicitudes');
+  const [applied, setApplied] = useState(FILTROS_VACIOS); // filtros que afectan la lista
+  const [draft, setDraft] = useState(FILTROS_VACIOS);     // edición dentro del panel
+  const [panelOpen, setPanelOpen] = useState(false);
   const [detalleId, setDetalleId] = useState(null);
   const [visibleCount, setVisibleCount] = useState(POR_PAGINA);
   const { toast, showToast, hideToast } = useToast();
 
-  // Al cambiar los filtros se vuelve a la primera página.
-  useEffect(() => { setVisibleCount(POR_PAGINA); }, [filtro, filtroFecha]);
+  // Al cambiar los filtros aplicados se vuelve a la primera página.
+  useEffect(() => { setVisibleCount(POR_PAGINA); }, [applied]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -317,11 +334,16 @@ export default function AdminView() {
   // El modal guarda solo el id: así el detalle se refresca si la solicitud cambia.
   const detalle = solicitudes.find((s) => s.idserviciomovil === detalleId);
 
-  const lista = solicitudes.filter((s) =>
-    (filtro === 'Todos' || displayEstatus(s) === filtro) &&
-    dentroDeRango(s.fechahora, filtroFecha)
-  );
+  // Opciones de tipo de unidad: los valores distintos presentes en los datos (ya legibles).
+  const tipoUnidadOptions = [...new Set(solicitudes.map((s) => s.tunidad).filter(Boolean))].sort();
+  const lista = solicitudes.filter((s) => coincideFiltros(s, applied));
+  const chips = chipsActivos(applied);
   const visibles = lista.slice(0, visibleCount);
+
+  const abrirPanel = () => { setDraft(applied); setPanelOpen(true); };
+  const aplicar    = () => { setApplied(draft); setPanelOpen(false); };
+  const limpiar    = () => { setDraft(FILTROS_VACIOS); setApplied(FILTROS_VACIOS); };
+  const quitarChip = (reset) => setApplied((a) => ({ ...a, ...reset }));
 
   return (
     <div>
@@ -329,44 +351,51 @@ export default function AdminView() {
 
       <BotonNotificaciones showToast={showToast} />
 
-      {/* Pestañas del administrador (mismo patrón que MecanicoForm) */}
-      <div className="segmented">
-        <button
-          type="button"
-          className={`segmented__btn ${tab === 'solicitudes' ? 'segmented__btn--active' : ''}`}
-          onClick={() => setTab('solicitudes')}
-        >
-          Solicitudes
-        </button>
-        <button
-          type="button"
-          className={`segmented__btn ${tab === 'reportes' ? 'segmented__btn--active' : ''}`}
-          onClick={() => setTab('reportes')}
-        >
-          Reportes
-        </button>
-      </div>
-
       {tab === 'reportes' ? (
         <ReportesAdmin />
+      ) : tab === 'pagos' ? (
+        <PagosAdmin />
       ) : (
         <>
-      {/* Filtros (estatus + fecha) */}
-      <div className="filtros-select">
-        <label className="filtros-select__group">
-          <span className="filtros-select__label">Estatus</span>
-          <select className="form-select" value={filtro} onChange={(e) => setFiltro(e.target.value)}>
-            {FILTROS.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
-        </label>
-        <label className="filtros-select__group">
-          <span className="filtros-select__label">Fecha</span>
-          <select className="form-select" value={filtroFecha} onChange={(e) => setFiltroFecha(e.target.value)}>
-            {FILTROS_FECHA.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
-        </label>
-        <button className="filtro-btn filtro-btn--reload" onClick={cargar} title="Recargar">↺</button>
+      {/* Barra de filtros: botón que abre el panel (con indicador de activos) + recarga */}
+      <div className="filtros-wrap">
+        <div className="filtros-bar">
+          <button type="button" className="filtros-btn" onClick={abrirPanel}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 5h18M6 12h12M10 19h4" />
+            </svg>
+            Filtros
+            {chips.length > 0 && <span className="filtros-badge">{chips.length}</span>}
+          </button>
+          <button className="filtro-btn filtro-btn--reload" onClick={cargar} title="Recargar">↺</button>
+        </div>
+
+        {panelOpen && (
+          <FiltrosPanel
+            draft={draft}
+            setDraft={setDraft}
+            tipoUnidadOptions={tipoUnidadOptions}
+            onAplicar={aplicar}
+            onLimpiar={limpiar}
+            onClose={() => setPanelOpen(false)}
+          />
+        )}
       </div>
+
+      {/* Indicador de filtros activos: chips removibles */}
+      {chips.length > 0 && (
+        <div className="filtros-chips">
+          {chips.map((c) => (
+            <button key={c.key} type="button" className="filtros-chip" onClick={() => quitarChip(c.reset)}>
+              {c.label} <span className="filtros-chip__x">✕</span>
+            </button>
+          ))}
+          <button type="button" className="filtros-chip filtros-chip--clear" onClick={limpiar}>
+            Limpiar todo
+          </button>
+        </div>
+      )}
 
       {loading && <p className="admin-estado">Cargando solicitudes...</p>}
       {error   && <div className="form-error">{error}</div>}

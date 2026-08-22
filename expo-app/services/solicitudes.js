@@ -58,6 +58,12 @@ export const autorizarPago = async (id, autorizacionPago, comentarioRechazo) => 
   return api.patch(`/admin/solicitudes/${id}`, { autorizacionPago, comentarioRechazo });
 };
 
+// Reasigna la semana de pago de un PO "por pagar" (semanaPago: 'YYYY-MM-DD' | null para quitar).
+export const asignarSemanaPago = async (id, semanaPago) => {
+  const api = await authAxios();
+  return api.patch(`/admin/solicitudes/${id}`, { semanaPago });
+};
+
 export const registerPushToken = async (expoPushToken) => {
   const api = await authAxios();
   return api.put('/push-token', { expoPushToken });

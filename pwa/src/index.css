@@ -22,32 +22,54 @@
   --paper-tint: #f2f1ee;
 }
 
-/* ── Control segmentado (pestañas) estilo iOS ────────────── */
-.segmented {
+/* ── Navegación principal (AppNav) ────────────────────────
+   Un solo componente, dos formas según ancho:
+     · móvil   → barra de tabs inferior (fixed bottom, ver base)
+     · desktop → sidebar izquierdo (ver @media al final)         */
+.appnav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 900;
   display: flex;
-  background: var(--paper-tint);
-  border-radius: 12px;
-  padding: 3px;
-  margin: 0 0 1.5rem;
+  gap: 0.25rem;
+  background: var(--paper);
+  border-top: 1px solid var(--rule);
+  box-shadow: 0 -4px 16px rgba(10, 10, 10, 0.05);
+  padding: 0.35rem 0.5rem;
+  padding-bottom: calc(0.35rem + env(safe-area-inset-bottom));
 }
-.segmented__btn {
+.appnav__item {
   flex: 1;
-  padding: 0.65rem 0.5rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
   background: transparent;
-  color: var(--ink);
   border: none;
-  border-radius: 9px;
-  font-family: 'Helvetica Neue', Arial, sans-serif;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
+  border-radius: 10px;
+  padding: 0.4rem 0.35rem;
   cursor: pointer;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: var(--ink-mid);
 }
-.segmented__btn--active {
-  background: var(--brand);
-  color: var(--paper);
-  box-shadow: 0 4px 12px rgba(10, 10, 10, 0.06);
+.appnav__icon { display: block; flex-shrink: 0; }
+.appnav__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.appnav__item--active {
+  color: var(--brand);
+  background: var(--paper-tint);
 }
 
 *, *::before, *::after {
@@ -153,10 +175,11 @@ body {
 
 /* ── Área de contenido ───────────────────────────────────── */
 
+/* Móvil: deja espacio inferior para que la última tarjeta libre la barra fija. */
 .content {
   max-width: 640px;
   margin: 0 auto;
-  padding: 3rem 2rem;
+  padding: 2rem 1.5rem calc(88px + env(safe-area-inset-bottom));
 }
 
 /* ── Bloque de datos de usuario ──────────────────────────── */
@@ -511,6 +534,113 @@ body {
   font-style: italic;
 }
 
+/* ── Filtros de Solicitudes: botón + panel + chips ────────── */
+.filtros-wrap { position: relative; margin-bottom: 1.25rem; }
+.filtros-bar { display: flex; align-items: center; gap: 0.75rem; }
+.filtros-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--paper-tint);
+  color: var(--ink);
+  border: none;
+  border-radius: 999px;
+  padding: 0.6rem 1.1rem;
+  cursor: pointer;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.filtros-btn:hover { background: var(--rule); }
+.filtros-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--paper);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Móvil: overlay oscuro + bottom sheet */
+.filtros-overlay { position: fixed; inset: 0; background: rgba(10, 10, 10, 0.45); z-index: 1000; }
+.filtros-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1001;
+  background: var(--paper);
+  border-radius: 20px 20px 0 0;
+  padding: 1.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 32px rgba(10, 10, 10, 0.25);
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: sheet-in 0.2s ease-out;
+}
+@keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.filtros-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.filtros-panel__titulo { font-family: Georgia, serif; font-size: 1.15rem; font-weight: 700; color: var(--ink); }
+.filtros-campo { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; }
+.filtros-rango { display: flex; gap: 0.75rem; }
+.filtros-rango .filtros-campo { flex: 1; min-width: 0; }
+.filtros-panel__actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+.filtros-panel__actions .btn-accion { flex: 1; text-align: center; padding: 0.7rem 1rem; }
+.filtros-limpiar { background: var(--paper-tint); color: var(--ink); }
+.filtros-limpiar:hover { background: var(--rule); }
+
+/* Indicador de filtros activos: chips removibles */
+.filtros-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem; }
+.filtros-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--paper-tint);
+  color: var(--ink);
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.filtros-chip__x { color: var(--ink-light); font-size: 0.7rem; }
+.filtros-chip:hover .filtros-chip__x { color: var(--ink); }
+.filtros-chip--clear { background: transparent; color: var(--brand); text-decoration: underline; }
+
+/* Desktop: el panel se vuelve dropdown anclado bajo la barra (sin oscurecer) */
+@media (min-width: 860px) {
+  .filtros-overlay { background: transparent; }
+  .filtros-panel {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    bottom: auto;
+    left: 0;
+    right: auto;
+    width: 420px;
+    max-width: 92vw;
+    border-radius: 16px;
+    padding: 1.25rem;
+    box-shadow: 0 12px 32px rgba(10, 10, 10, 0.18);
+    animation: none;
+  }
+}
+
 /* ── Reportes del administrador ──────────────────────────── */
 
 /* Selector Semanal / Mensual */
@@ -708,6 +838,36 @@ body {
   color: var(--ink-mid);
   margin-top: 0.15rem;
 }
+/* Chip "Reprogramado" (semana de pago asignada manualmente) */
+.cxp-reprog {
+  margin-left: 0.5rem;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brand);
+  background: var(--paper-tint);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  vertical-align: middle;
+}
+/* Botón por fila para mover el PO a otra semana */
+.cxp-mover {
+  align-self: flex-start;
+  margin-top: 0.3rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mid);
+}
+.cxp-mover:hover { color: var(--brand); }
 .cxp-row__check {
   flex-shrink: 0;
   width: 18px;
@@ -1079,7 +1239,8 @@ body {
 
 .toast {
   position: fixed;
-  bottom: 2rem;
+  /* Móvil: por encima de la barra de tabs inferior. */
+  bottom: calc(80px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   padding: 0.75rem 1.5rem;
@@ -1109,4 +1270,82 @@ body {
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0);   }
+}
+
+/* ============================================================
+   DESKTOP (pantalla ancha) — la barra de tabs se vuelve sidebar
+   izquierdo y las tarjetas fluyen en grid multi-columna.
+   ============================================================ */
+@media (min-width: 860px) {
+  .app-body {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  /* AppNav → sidebar */
+  .appnav {
+    position: sticky;
+    top: 0;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    z-index: 1;
+    width: 232px;
+    flex-shrink: 0;
+    height: 100vh;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.3rem;
+    padding: 2rem 1rem;
+    background: var(--paper);
+    border-top: none;
+    border-right: 1px solid var(--rule);
+    box-shadow: none;
+  }
+  .appnav__item {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.7rem;
+    text-align: left;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    color: var(--ink-mid);
+  }
+  .appnav__label {
+    max-width: none;
+  }
+  .appnav__item:not(.appnav__item--active):hover {
+    background: var(--paper-tint);
+    color: var(--ink);
+  }
+  .appnav__item--active {
+    background: var(--brand);
+    color: var(--paper);
+    box-shadow: 0 4px 12px rgba(10, 10, 10, 0.06);
+  }
+
+  /* Contenido: usa el ancho restante, sin la reserva inferior de la barra móvil. */
+  .content {
+    flex: 1;
+    min-width: 0;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2.5rem 2.5rem 3rem;
+  }
+
+  /* Tarjetas de solicitudes en grid multi-columna (solo la lista). */
+  .solicitudes-lista {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1rem;
+    align-items: start;
+  }
+
+  /* Sin barra inferior en desktop: el toast vuelve a su posición original. */
+  .toast {
+    bottom: 2rem;
+  }
 }

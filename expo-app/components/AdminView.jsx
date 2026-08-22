@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView,
   FlatList, ActivityIndicator, Platform, Modal, TextInput,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { getSolicitudes, actualizarEstatus, autorizarPago } from '../services/solicitudes';
 import FotoThumb from './FotoThumb';
 import DetalleSolicitud from './DetalleSolicitud';
@@ -24,21 +25,41 @@ const mono = Platform.OS === 'ios' ? 'Courier New' : 'monospace';
 const serif = Platform.OS === 'ios' ? 'Georgia' : 'serif';
 
 const FILTROS = ['Todos', 'Pendiente', 'En proceso', 'Reparado', 'Pago autorizado', 'Pagado', 'Rechazado', 'Pago rechazado'];
-const FILTROS_FECHA = ['Todo', 'Hoy', '7 días', '30 días'];
 const POR_PAGINA = 10;
+
+// Filtros de la vista. Todos opcionales; vacío = sin filtrar por ese campo.
+const FILTROS_VACIOS = { estatus: 'Todos', tipoUnidad: '', po: '', fechaInicio: '', fechaFin: '' };
 
 const money = (v) => `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
-// Filtro por rango de fecha (presets). 'Hoy' = mismo día; N días = últimos N días.
-function dentroDeRango(raw, rango) {
-  if (rango === 'Todo') return true;
-  const f = parseWall(raw);
-  if (!f) return false;
-  if (rango === 'Hoy') return f.toDateString() === new Date().toDateString();
-  const dias = rango === '7 días' ? 7 : 30;
-  const limite = new Date();
-  limite.setDate(limite.getDate() - dias);
-  return f >= limite;
+// Fechas de los filtros: 'YYYY-MM-DD' <-> Date (local, sin zona horaria).
+const dosDigitos = (n) => String(n).padStart(2, '0');
+const toISODate = (d) => `${d.getFullYear()}-${dosDigitos(d.getMonth() + 1)}-${dosDigitos(d.getDate())}`;
+const parseISODate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+
+// ¿La solicitud pasa todos los filtros activos? (fecha por fecha de solicitud)
+function coincideFiltros(s, f) {
+  if (f.estatus !== 'Todos' && displayEstatus(s) !== f.estatus) return false;
+  if (f.tipoUnidad && s.tunidad !== f.tipoUnidad) return false;
+  if (f.po.trim() && !String(s.PO ?? '').includes(f.po.trim())) return false;
+  if (f.fechaInicio || f.fechaFin) {
+    const d = parseWall(s.fechahora);
+    if (!d) return false;
+    if (f.fechaInicio && d < parseWall(`${f.fechaInicio}T00:00:00`)) return false;
+    if (f.fechaFin && d > parseWall(`${f.fechaFin}T23:59:59`)) return false;
+  }
+  return true;
+}
+
+// Chips descriptivos de los filtros activos (indicador). Cada uno sabe cómo limpiarse.
+function chipsActivos(f) {
+  const chips = [];
+  if (f.estatus !== 'Todos') chips.push({ key: 'estatus', label: f.estatus, reset: { estatus: 'Todos' } });
+  if (f.tipoUnidad)          chips.push({ key: 'tipoUnidad', label: f.tipoUnidad, reset: { tipoUnidad: '' } });
+  if (f.po.trim())           chips.push({ key: 'po', label: `PO ${f.po.trim()}`, reset: { po: '' } });
+  if (f.fechaInicio)         chips.push({ key: 'fechaInicio', label: `Desde ${f.fechaInicio}`, reset: { fechaInicio: '' } });
+  if (f.fechaFin)            chips.push({ key: 'fechaFin', label: `Hasta ${f.fechaFin}`, reset: { fechaFin: '' } });
+  return chips;
 }
 
 // Estatus para mostrar: el pago se deriva del booleano autorizacionpago
@@ -349,13 +370,15 @@ export default function AdminView({ showToast }) {
   const [solicitudes, setSolicitudes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filtro, setFiltro] = useState('Todos');
-  const [filtroFecha, setFiltroFecha] = useState('Todo');
+  const [applied, setApplied] = useState(FILTROS_VACIOS); // filtros que afectan la lista
+  const [draft, setDraft] = useState(FILTROS_VACIOS);     // edición dentro del modal
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [pickerField, setPickerField] = useState(null);   // 'fechaInicio' | 'fechaFin' | null
   const [visibleCount, setVisibleCount] = useState(POR_PAGINA);
   const [detalleId, setDetalleId] = useState(null);
 
-  // Al cambiar los filtros se vuelve a la primera página.
-  useEffect(() => { setVisibleCount(POR_PAGINA); }, [filtro, filtroFecha]);
+  // Al cambiar los filtros aplicados se vuelve a la primera página.
+  useEffect(() => { setVisibleCount(POR_PAGINA); }, [applied]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -388,29 +411,134 @@ export default function AdminView({ showToast }) {
     );
   };
 
-  const lista = solicitudes.filter((s) =>
-    (filtro === 'Todos' || displayEstatus(s) === filtro) &&
-    dentroDeRango(s.fechahora, filtroFecha)
-  );
+  // Opciones de tipo de unidad: los valores distintos presentes en los datos (ya legibles).
+  const tipoUnidadOptions = [...new Set(solicitudes.map((s) => s.tunidad).filter(Boolean))].sort();
+  const lista = solicitudes.filter((s) => coincideFiltros(s, applied));
+  const chips = chipsActivos(applied);
   const visibles = lista.slice(0, visibleCount);
   const detalle = solicitudes.find((s) => s.idserviciomovil === detalleId);
 
+  const abrirPanel = () => { setDraft(applied); setPickerField(null); setPanelOpen(true); };
+  const aplicar    = () => { setApplied(draft); setPanelOpen(false); };
+  const limpiar    = () => { setDraft(FILTROS_VACIOS); setApplied(FILTROS_VACIOS); };
+  const quitarChip = (reset) => setApplied((a) => ({ ...a, ...reset }));
+  const setCampo   = (campo, valor) => setDraft((d) => ({ ...d, [campo]: valor }));
+
   return (
     <View style={styles.container}>
-      {/* Filtros (estatus + fecha) */}
-      <View style={styles.filtroSelects}>
-        <View style={styles.filtroSelectCol}>
-          <Text style={styles.filtroSelectLabel}>Estatus</Text>
-          <CustomSelect value={filtro} options={FILTROS} onChange={setFiltro} placeholder="Todos" />
-        </View>
-        <View style={styles.filtroSelectCol}>
-          <Text style={styles.filtroSelectLabel}>Fecha</Text>
-          <CustomSelect value={filtroFecha} options={FILTROS_FECHA} onChange={setFiltroFecha} placeholder="Todo" />
-        </View>
+      {/* Barra: botón que abre el modal de filtros (con indicador) + recarga */}
+      <View style={styles.filtroBar}>
+        <TouchableOpacity style={styles.filtroBtn} onPress={abrirPanel} activeOpacity={0.7}>
+          <Text style={styles.filtroBtnText}>≡  Filtros</Text>
+          {chips.length > 0 && (
+            <View style={styles.filtroBadge}><Text style={styles.filtroBadgeText}>{chips.length}</Text></View>
+          )}
+        </TouchableOpacity>
         <TouchableOpacity onPress={cargar} style={styles.filtroReload} activeOpacity={0.7}>
           <Text style={styles.filtroReloadText}>↺</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Indicador de filtros activos: chips removibles */}
+      {chips.length > 0 && (
+        <View style={styles.chipsRow}>
+          {chips.map((c) => (
+            <TouchableOpacity key={c.key} style={styles.chip} onPress={() => quitarChip(c.reset)} activeOpacity={0.7}>
+              <Text style={styles.chipText}>{c.label}</Text>
+              <Text style={styles.chipX}>✕</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={styles.chipClear} onPress={limpiar} activeOpacity={0.7}>
+            <Text style={styles.chipClearText}>Limpiar todo</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Modal de filtros (centrado; el bottom sheet estorba con la barra del teléfono) */}
+      <Modal visible={panelOpen} transparent animationType="fade" onRequestClose={() => setPanelOpen(false)}>
+        <View style={styles.filtroModalOverlay}>
+          <View style={styles.filtroModalCard}>
+            <View style={styles.filtroModalHead}>
+              <Text style={styles.filtroModalTitulo}>Filtros</Text>
+              <TouchableOpacity onPress={() => setPanelOpen(false)} activeOpacity={0.7}>
+                <Text style={styles.filtroModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 420 }}>
+              <Text style={styles.filtroCampoLabel}>Estatus</Text>
+              <CustomSelect value={draft.estatus} options={FILTROS}
+                onChange={(v) => setCampo('estatus', v)} placeholder="Todos" />
+
+              <Text style={[styles.filtroCampoLabel, { marginTop: 14 }]}>Tipo de unidad</Text>
+              <CustomSelect value={draft.tipoUnidad} options={['Todos', ...tipoUnidadOptions]}
+                onChange={(v) => setCampo('tipoUnidad', v === 'Todos' ? '' : v)}
+                placeholder="Todos" />
+
+              <Text style={[styles.filtroCampoLabel, { marginTop: 14 }]}>PO</Text>
+              <TextInput
+                style={[styles.input, { fontFamily: mono, fontSize: 14, color: INK }]}
+                value={draft.po}
+                onChangeText={(v) => setCampo('po', v)}
+                placeholder="Buscar por PO…"
+                placeholderTextColor={INK_LIGHT}
+                keyboardType="number-pad"
+              />
+
+              <View style={styles.filtroRango}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.filtroCampoLabel}>Fecha inicial</Text>
+                  <TouchableOpacity
+                    style={[styles.input, styles.selectTrigger]}
+                    onPress={() => setPickerField(pickerField === 'fechaInicio' ? null : 'fechaInicio')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.monoText, !draft.fechaInicio && { color: INK_LIGHT }]}>
+                      {draft.fechaInicio || 'Cualquiera'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.filtroCampoLabel}>Fecha final</Text>
+                  <TouchableOpacity
+                    style={[styles.input, styles.selectTrigger]}
+                    onPress={() => setPickerField(pickerField === 'fechaFin' ? null : 'fechaFin')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.monoText, !draft.fechaFin && { color: INK_LIGHT }]}>
+                      {draft.fechaFin || 'Cualquiera'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {pickerField && (
+                <DateTimePicker
+                  value={draft[pickerField] ? parseISODate(draft[pickerField]) : new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={(event, selected) => {
+                    const field = pickerField;
+                    if (Platform.OS === 'android') setPickerField(null);
+                    if (event.type !== 'dismissed' && selected) {
+                      setCampo(field, toISODate(selected));
+                    }
+                  }}
+                />
+              )}
+            </ScrollView>
+
+            <View style={styles.filtroModalAcciones}>
+              <TouchableOpacity style={[styles.btnAccion, styles.btnCancelar, { flex: 1 }]} onPress={limpiar} activeOpacity={0.7}>
+                <Text style={styles.btnRechazarText}>Limpiar filtros</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnAccion, styles.btnAprobar, { flex: 1 }]} onPress={aplicar} activeOpacity={0.7}>
+                <Text style={styles.btnAprobarText}>Aplicar filtros</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {loading && <ActivityIndicator color={INK} style={{ marginTop: 32 }} />}
 
@@ -481,17 +609,50 @@ const CARD_SHADOW = {
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  // Filtros (estatus + fecha) como selects
-  filtroSelects: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 16,
+  // Barra de filtros: botón "Filtros" (con badge) + recarga
+  filtroBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  filtroBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: PAPER_TINT, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 11,
   },
-  filtroSelectCol: { flex: 1 },
-  filtroSelectLabel: {
+  filtroBtnText: {
+    fontFamily: sans, fontSize: 10, letterSpacing: 1.5,
+    textTransform: 'uppercase', fontWeight: '700', color: INK,
+  },
+  filtroBadge: {
+    minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 999, backgroundColor: BRAND,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  filtroBadgeText: { fontFamily: sans, fontSize: 10, fontWeight: '700', color: PAPER },
+  filtroReload: { backgroundColor: PAPER_TINT, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  filtroReloadText: { fontFamily: sans, fontSize: 16, color: INK, lineHeight: 18 },
+
+  // Chips de filtros activos (indicador)
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 16 },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: PAPER_TINT, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  chipText: { fontFamily: sans, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, color: INK },
+  chipX: { fontFamily: sans, fontSize: 11, color: INK_LIGHT },
+  chipClear: { paddingHorizontal: 4, paddingVertical: 6 },
+  chipClearText: {
+    fontFamily: sans, fontSize: 10, fontWeight: '700', letterSpacing: 0.5,
+    textTransform: 'uppercase', color: BRAND, textDecorationLine: 'underline',
+  },
+
+  // Modal de filtros
+  filtroModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', paddingHorizontal: 24 },
+  filtroModalCard: { backgroundColor: PAPER, borderRadius: 20, padding: 20, ...CARD_SHADOW },
+  filtroModalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  filtroModalTitulo: { fontFamily: serif, fontSize: 18, fontWeight: '700', color: INK },
+  filtroModalClose: { fontFamily: sans, fontSize: 16, color: INK },
+  filtroCampoLabel: {
     fontFamily: sans, fontSize: 9, letterSpacing: 1.5,
     textTransform: 'uppercase', fontWeight: '700', color: INK_LIGHT, marginBottom: 6,
   },
-  filtroReload: { backgroundColor: PAPER_TINT, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
-  filtroReloadText: { fontFamily: sans, fontSize: 16, color: INK, lineHeight: 18 },
+  filtroRango: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  filtroModalAcciones: { flexDirection: 'row', gap: 10, marginTop: 18 },
 
   // Select (trigger + sheet)
   input: {

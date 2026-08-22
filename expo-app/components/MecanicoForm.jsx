@@ -420,7 +420,7 @@ function CerrarTicketForm({ solicitud, showToast, onClosed }) {
 }
 
 // ── Formulario principal ──────────────────────────────────────
-export default function MecanicoForm({ user, showToast }) {
+export default function MecanicoForm({ user, showToast, tab, setTab }) {
   const [form, setForm] = useState({
     tipoUnidad: '', numeroEconomico: '',
     descripcionServicio: '', costoEstimado: '', odometro: '',
@@ -434,7 +434,6 @@ export default function MecanicoForm({ user, showToast }) {
   const [status, setStatus] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
-  const [tab, setTab] = useState('crear');
 
   const esCamion = form.tipoUnidad === 'Camión';
 
@@ -513,28 +512,6 @@ export default function MecanicoForm({ user, showToast }) {
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-
-      {/* ── Pestañas ── */}
-      <View style={styles.segmented}>
-        <TouchableOpacity
-          style={[styles.segment, tab === 'crear' && styles.segmentActive]}
-          onPress={() => setTab('crear')} activeOpacity={0.7}
-        >
-          <Text style={[styles.segmentText, tab === 'crear' && styles.segmentTextActive]}>Crear</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.segment, styles.segmentRight, tab === 'proceso' && styles.segmentActive]}
-          onPress={() => setTab('proceso')} activeOpacity={0.7}
-        >
-          <Text style={[styles.segmentText, tab === 'proceso' && styles.segmentTextActive]}>En proceso</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.segment, styles.segmentRight, tab === 'mis' && styles.segmentActive]}
-          onPress={() => setTab('mis')} activeOpacity={0.7}
-        >
-          <Text style={[styles.segmentText, tab === 'mis' && styles.segmentTextActive]}>Mis solicitudes</Text>
-        </TouchableOpacity>
-      </View>
 
       {tab === 'crear' ? (
       <>
@@ -650,14 +627,6 @@ const CARD_SHADOW = {
 const styles = StyleSheet.create({
   scroll:     { flex: 1 },
   container:  { padding: 24, paddingBottom: 48 },
-
-  // Control segmentado (pestañas) estilo iOS: pista tintada + segmento activo redondeado
-  segmented:   { flexDirection: 'row', backgroundColor: PAPER_TINT, borderRadius: 12, padding: 3, marginBottom: 24 },
-  segment:     { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 9 },
-  segmentRight:{},
-  segmentActive:    { backgroundColor: BRAND, ...CARD_SHADOW },
-  segmentText: { fontFamily: sans, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', color: INK },
-  segmentTextActive:{ color: PAPER },
 
   greeting: { marginBottom: 24 },
   greetingText: { fontFamily: serif, fontSize: 18, color: INK, marginBottom: 4 },

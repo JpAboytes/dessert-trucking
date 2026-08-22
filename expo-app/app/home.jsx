@@ -6,9 +6,26 @@ import { getToken, decodeToken, logout } from '../services/auth';
 import MecanicoForm from '../components/MecanicoForm';
 import AdminView from '../components/AdminView';
 import ReportesAdmin from '../components/ReportesAdmin';
+import PagosAdmin from '../components/PagosAdmin';
+import BottomTabs from '../components/BottomTabs';
 import Toast from '../components/Toast';
 import Logo from '../components/Logo';
 import { registerForNotifications } from '../services/notifications';
+
+// Secciones por rol; el shell mantiene el tab activo y lo baja a la vista.
+// `icon` = nombre base de Ionicons (BottomTabs elige relleno/outline según activo).
+const NAV = {
+  Mantenimiento: [
+    { key: 'crear',   label: 'Crear',          icon: 'add-circle' },
+    { key: 'proceso', label: 'En proceso',     icon: 'construct' },
+    { key: 'mis',     label: 'Mis solicitudes', icon: 'document-text' },
+  ],
+  Administrador: [
+    { key: 'solicitudes', label: 'Solicitudes', icon: 'documents' },
+    { key: 'reportes',    label: 'Reportes',    icon: 'bar-chart' },
+    { key: 'pagos',       label: 'Pagos',       icon: 'cash' },
+  ],
+};
 
 const INK     = '#0a0a0a';
 const BRAND   = '#046738';
@@ -24,7 +41,9 @@ const sans  = Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif';
 export default function HomeScreen() {
   const [user, setUser] = useState(null);
   const [toast, setToast] = useState({ message: '', type: 'success' });
-  const [adminTab, setAdminTab] = useState('solicitudes');
+  const [tab, setTab] = useState(null);
+
+  const navItems = user ? (NAV[user.tusuario] ?? []) : [];
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -40,6 +59,7 @@ export default function HomeScreen() {
       const decoded = decodeToken(token);
       if (!decoded) { router.replace('/'); return; }
       setUser(decoded);
+      setTab(NAV[decoded.tusuario]?.[0]?.key ?? null);
       // Mecánicos: avisos de autorización/pago. Administradores: aviso de cierre de reparación.
       if (decoded.tusuario === 'Mantenimiento' || decoded.tusuario === 'Administrador') {
         await registerForNotifications();
@@ -76,43 +96,36 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Contenido según rol */}
-      {user.tusuario === 'Mantenimiento' && (
-        <MecanicoForm user={user} showToast={showToast} />
+      {/* Contenido según rol (flex:1: llena el espacio sobre la barra de tabs) */}
+      <View style={styles.body}>
+        {user.tusuario === 'Mantenimiento' && (
+          <MecanicoForm user={user} showToast={showToast} tab={tab} setTab={setTab} />
+        )}
+
+        {user.tusuario === 'Administrador' && (
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+            <View style={styles.userBlock}>
+              <Text style={styles.userName}>
+                {tab === 'reportes' ? 'Reportes' : tab === 'pagos' ? 'Cuentas por pagar' : 'Solicitudes de servicio'}
+              </Text>
+              <Text style={styles.userMeta}>{user.nombre} · Administrador</Text>
+            </View>
+
+            {tab === 'reportes'
+              ? <ReportesAdmin />
+              : tab === 'pagos'
+                ? <PagosAdmin />
+                : <AdminView showToast={showToast} />}
+          </ScrollView>
+        )}
+      </View>
+
+      {/* Barra de tabs inferior (hermana del contenido: no lo tapa) */}
+      {navItems.length > 0 && (
+        <BottomTabs items={navItems} active={tab} onSelect={setTab} />
       )}
 
-      {user.tusuario === 'Administrador' && (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-          {/* Pestañas del administrador (mismo patrón que MecanicoForm) */}
-          <View style={styles.segmented}>
-            <TouchableOpacity
-              style={[styles.segment, adminTab === 'solicitudes' && styles.segmentActive]}
-              onPress={() => setAdminTab('solicitudes')} activeOpacity={0.7}
-            >
-              <Text style={[styles.segmentText, adminTab === 'solicitudes' && styles.segmentTextActive]}>Solicitudes</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.segment, styles.segmentRight, adminTab === 'reportes' && styles.segmentActive]}
-              onPress={() => setAdminTab('reportes')} activeOpacity={0.7}
-            >
-              <Text style={[styles.segmentText, adminTab === 'reportes' && styles.segmentTextActive]}>Reportes</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.userBlock}>
-            <Text style={styles.userName}>
-              {adminTab === 'solicitudes' ? 'Solicitudes de servicio' : 'Reportes'}
-            </Text>
-            <Text style={styles.userMeta}>{user.nombre} · Administrador</Text>
-          </View>
-
-          {adminTab === 'solicitudes'
-            ? <AdminView showToast={showToast} />
-            : <ReportesAdmin />}
-        </ScrollView>
-      )}
-
-      {/* Toast — fuera del ScrollView para superponerse a todo */}
+      {/* Toast — fuera del contenido para superponerse a todo */}
       <Toast message={toast.message} type={toast.type} onDismiss={hideToast} />
     </SafeAreaView>
   );
@@ -145,16 +158,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 5, overflow: 'hidden',
   },
 
+  body:      { flex: 1 },
   scroll:    { flex: 1 },
   content:   { padding: 24, paddingBottom: 48 },
 
-  // Control segmentado (pestañas) estilo iOS — mismo patrón que MecanicoForm
-  segmented:   { flexDirection: 'row', backgroundColor: PAPER_TINT, borderRadius: 12, padding: 3, marginBottom: 24 },
-  segment:     { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 9 },
-  segmentRight:{},
-  segmentActive:    { backgroundColor: BRAND },
-  segmentText: { fontFamily: sans, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', color: INK },
-  segmentTextActive:{ color: PAPER },
   userBlock: { paddingBottom: 8, marginBottom: 16 },
   userName: {
     fontFamily: serif, fontSize: 20, fontWeight: '700',
